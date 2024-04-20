@@ -223,15 +223,83 @@ async function doDeleteHabit(habitService){
 
         
     }
+}
 
 
 
+async function doHabitEdit(habitService){
+    const habitOptions = await habitService.getHabits()
+    if(habitOptions.error){
+        panic(`Failed to fetch habits for updating: ${habitOptions.error}`)
+    }
+    const selectedIndex = await inquirer.select({
+        message: "Select a habit to update...",
+        choices: habitOptions.habits.map((habit,i)=>({
+            name: ColoredString(habit.name,habit.color,habit.color === "black" ? "white" : "black"),
+            value: i,
+        }))
+    })
+    const habit = habitOptions.habits[selectedIndex]
+    const new_name = await inquirer.input(({
+        message: "Habit Name: ",
+        default: habit.name,
+    }))
+
+    const new_count = await inquirer.input({
+        message: "Daily Goal: ", 
+        default: habit.daily_count,
+        validate: s => !isNaN(s)
+    })
+
+    const min_or_max = await inquirer.select({
+        message: "Minimum or Maximum Goal: ",
+        choices: [
+            {
+                name: "Minimum",
+                value: 0,
+                description: "Habit should be completed at LEAST <daily goal> times."
+            },
+            {
+                name: "Maximum",
+                value: 1,
+                description: "Habit should be completed at MOST <daily goal> times."
+            }
+        ],
+        default: habit.min_max
+    })
+
+
+    const new_color = await inquirer.select({
+        message: "Color: ",
+        choices: colorPicker.map((color,i)=>({
+            name: color,
+            value: colorPickerValues[i], 
+        })),
+        default: habit.color
+    })
+
+
+    const update = await habitService.editHabit(habit.id, {
+        name: new_name, 
+        daily_count: new_count,
+        min_max: min_or_max,
+        color: new_color
+    })
+
+    if(update.error){
+        return console.error(
+            ColoredString(`Failed to update Habit... \n Reason: ${update.error}`)
+        )
+    } else { 
+        return console.log(ColoredString("Successfully updated Habit!", "green"))
+    }
 
 
 
 
 
 }
+
 
 
 
@@ -310,6 +378,11 @@ async function doRootMenu(habitService){
                 description: "Delete an existing habit"
             },
             {
+                name: "Update Habit",
+                value: "u",
+                description: "Update an existing habit"
+            },
+            {
                 name: "Export Habit Data",
                 value: "e",
                 description: "Export your habits to csv or json format"
@@ -335,6 +408,9 @@ async function doRootMenu(habitService){
             break; 
         case "d": 
             await doDeleteHabit(habitService)
+            break;
+        case "u": 
+            await doHabitEdit(habitService)
             break;
         case "q": 
             console.log("Goodbye :)")

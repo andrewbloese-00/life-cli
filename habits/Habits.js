@@ -104,6 +104,15 @@ export const Habits = async function _Habits() {
       ud.push("name=?")
       args.push(updates.name)
     }
+    if(updates.min_max){
+      ud.push("min_max=?")
+      args.push(updates.min_max)
+    }
+
+    if(updates.color){
+      ud.push("color=?")
+      args.push(updates.color)
+    }
 
     args.push(habitId)
     const response = await db.execute({
