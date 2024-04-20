@@ -1,7 +1,7 @@
 import { Habits } from "../habits/Habits.js";
 import { ColoredString } from "../utils/coloring.js";
 import { panic } from "../utils/panic.js";
-
+import { existsSync } from 'fs'
 import * as inquirer from '@inquirer/prompts'
 
 //initializes the required services for the app
@@ -10,6 +10,7 @@ async function getServices(){
     try {
         //load habits functions
         const habitService = await Habits()
+        
         return { habitService}
     } catch (error) {
         panic(`Failed to get Services:${error}`, 1)
@@ -24,10 +25,11 @@ async function getServices(){
 function renderTallies(tallies){
     let lines  = [ ]
     for(const tally of tallies) {
+        const p = Math.min(tally.Progress,tally.daily_count)
         const txt = `[${tally.id}] ${tally.name} -> ` 
         const remaining = (process.stdout.columns - txt.length - 10)
-        const barWidth = Math.floor(remaining * (tally.Progress / tally.daily_count));
-        const bar = `[${"=".repeat(barWidth).padEnd(remaining," ")}]`
+        const barWidth = Math.floor(remaining * (p / tally.daily_count));
+        const bar = ColoredString(`[${"=".repeat(barWidth).padEnd(remaining," ")}]`, tally.color, tally.color === "black" ? "white" : "black")
         lines.push(`${txt}${bar}`)
     } 
     return lines.join('\n')
@@ -115,7 +117,6 @@ async function doCreateHabit(habitService){
 
 }
 
-
 async function doGetHabits(habitService,render=true){
     const { habits, error} = await habitService.getHabits()
     if(error) panic(`Failed to fetch habits! REASON: \n ${error}`,1)
@@ -125,7 +126,7 @@ async function doGetHabits(habitService,render=true){
 
 async function doAddTallies(habitService){
     console.log(ColoredString("== Add Tallies ==", "cyan", "black", {bright: true}))
-    const habits = await doGetHabits(habitService,false)
+    const habits = await doGetHabits(habitService,false) //handles err for me
     //render the habits in the select 
     const habitIdSelected = await inquirer.select({
         message: "Select A Habit To Tally",
@@ -150,22 +151,123 @@ async function doAddTallies(habitService){
     const { tallies, error } = await habitService.getTalliesOn(new Date());
     if(error) panic(`Failed to fetch updated tallies... Reason: \n${error}`)
     console.log(renderTallies(tallies))
+}
+
+async function doExportHabits(habitService){
+    const { habits , error } = await habitService.getHabits()
+    if(error) panic(`Failed to fetch habits to be exported... Reason: \n${error}`);
+    
+    const format = await inquirer.select({
+        message: "Which format?",
+        choices: [
+            {
+                name: "JSON",
+                value: "json",
+                description: "A single JSON file (per habit) containing habit properties and tally history."
+            },
+            {
+                name: "CSV",
+                value: "csv",
+                description: "A CSV table of the habit itself, and a table of all related tally history."
+            }
+        ]
+    })
 
 
+    const selectedHabits = await inquirer.checkbox({
+        message: "Select the habit(s) you would like to export (Space to toggle, enter to continue)",
+        choices: habits.map(habit=>({
+            name: habit.name,
+            value: habit.id
+        }))
+    })
 
+    const q = [] 
+    for(const habitId of selectedHabits) {
+        q.push(habitService.exportHabitData(habitId,habitId,format))
 
-
-
-
-
-
-
+    }
+    await Promise.allSettled(q);
+    console.log(
+        ColoredString("Export Completed!", "green")
+    )
 
     
 
+}
+
+
+async function doDeleteHabit(habitService){
+    const { habits, error } = await habitService.getHabits()
+    if(error) panic(`Failed to fetch habits list for deletion... Reason: \n ${error}`)
+    const selected = await inquirer.select({
+        message: "Select A Habit to Delete", 
+        choices: habits.map((habit,i)=>{
+            return { 
+                name: ColoredString(habit.name, habit.color, habit.color === "black" ? "white" : "black" ),
+                value: i
+            }
+        })
+    })
+
+    const habitString = ColoredString(habits[selected].name, habits[selected].color, habits[selected].color === "black" ? "white" : "black")
+    const confirmDelete = await inquirer.confirm({message: `Are you sure you want to delete the habit: ${habitString}?\n > `})
+    if(confirmDelete){
+        const deleted = await habitService.deleteHabit(habits[selected].id)
+        if(deleted.error) panic(`Failed to delete habit... \nReason: ${deleted.error}`)
+        console.log(ColoredString(`Successfully Deleted Habit!`, "green"))
+    } else { 
+        console.log(
+            ColoredString( `Cancelled Delete Habit Action, returning to menu...`, "red")
+        )
+
+        
+    }
 
 
 
+
+
+
+
+
+}
+
+
+
+
+function generateTitle(){
+    // const title = [ 
+    //     "##  ##    ###    ####    ######  ######   #### ",
+    //     "##  ##  ##   ##  ##  ##    ##      ##    ##    ",
+    //     "######  #######  ####      ##      ##     ###  ",
+    //     "##  ##  ##   ##  ##  ##    ##      ##        ##",
+    //     "##  ##  ##   ##  ####$   ######    ##    ####  ",
+    // ]
+
+    const title = [ 
+        "##      ######  ######  ######         ####  ##      ###### ",
+        "##        ##    ##      ##           ##      ##        ##   ",
+        "##        ##    ####    ####    ###  ##      ##        ##   ",
+        "##        ##    ##      ##           ##      ##        ##   ",
+        "######  ######  ##      ######         ####  ######  ###### "
+
+    ]
+
+
+
+    let coloredTitle = "" 
+    for(let i = 0; i < title.length; i++){
+        for(let j = 0; j < title[i].length; j++){
+            coloredTitle += (title[i][j] === "#") ? ColoredString('\u2588',"cyan","black",{bright: true}) : " " 
+            // coloredTitle += ColoredString(title[i][j], colors[c],"black",{bright:true});
+        }
+        
+        
+        
+        coloredTitle += "\n"
+    }
+    return coloredTitle;
 }
 
 
@@ -177,30 +279,92 @@ async function doAddTallies(habitService){
 
 
 
+
+
+
+
+let first = true; 
+async function doRootMenu(habitService){
+    if(first){
+        console.log(generateTitle())
+        first = false
+    }
+
+    const option = await inquirer.select({
+        message: "Select an action",
+        choices: [ 
+            new inquirer.Separator( ColoredString("---Habits---", "cyan","black",{ bright: true})),
+            {
+                name: "Add New Habit",
+                value: "a",
+                description: "Create a new daily habit to track"
+            },
+            {
+                name: "Add Tally",
+                value: "t",
+                description: "Mark progress towards an existing habit"
+            },
+            {
+                name: "Delete Habit",
+                value: "d", 
+                description: "Delete an existing habit"
+            },
+            {
+                name: "Export Habit Data",
+                value: "e",
+                description: "Export your habits to csv or json format"
+            },
+            new inquirer.Separator(""),
+            {
+                name: "Quit",
+                value: "q",
+                description: "Quit the program..."
+            }
+        ]
+    })
+
+    switch(option){
+        case "a": 
+            await doCreateHabit(habitService)
+            break;
+        case "t":
+            await doAddTallies(habitService)
+            break;
+        case "e":
+            await doExportHabits(habitService)
+            break; 
+        case "d": 
+            await doDeleteHabit(habitService)
+            break;
+        case "q": 
+            console.log("Goodbye :)")
+            process.exit(0)
+        default: 
+            panic("Unrecognized option: " + option);
+    }
+    console.log(ColoredString("== Habits ==", "cyan","black",{bright: true}))
+
+    await doRootMenu(habitService)
+}
+
+
+
+
+
+
+
 async function main(){
-    const { habitService } = await getServices();
-    // await doCreateHabit(habitService)
-    // await doGetHabits(habitService)
-    await doAddTallies(habitService)
-
-
-    
-
-
-
-
-
-    
-
-    
-
-
-
-
-
-
-
-
+    try {
+        const { habitService } = await getServices();
+        await doRootMenu(habitService)
+    } catch (error) {
+        if(error.message.startsWith("User force closed")){
+            console.log("Goodbye :)")
+            process.exit(0)
+        }
+        console.error(error.message)
+        panic("APPLICATION ERROR",1)
+    }
 }
 
 main()

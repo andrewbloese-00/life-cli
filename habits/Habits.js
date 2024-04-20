@@ -75,7 +75,7 @@ export const Habits = async function _Habits() {
 
     try {
       const reply = await db.execute({
-        sql: `SELECT H.name, H.daily_count, H.id, H.color, SUM(T.count) as 'Progress' FROM Habits H JOIN HabitTallies T ON H.id = T.habit_id WHERE substr(T.date,1,10)=? GROUP BY H.name, H.id`,
+        sql: `SELECT H.name, H.daily_count, H.id, H.color, SUM(T.count) as 'Progress' FROM Habits H JOIN HabitTallies T ON H.id = T.habit_id WHERE substr(T.date,1,10)=? GROUP BY H.name, H.id ORDER BY H.id`,
         args: [d],
       });
       
@@ -180,20 +180,33 @@ export const Habits = async function _Habits() {
       );
       await writeFile(`Habit-${oFile}.json`, json, "utf-8");
     } else {
-      //csv
-      let csvHabit =
-        habit.columns.join(",") +
-        "\n" +
-        habit.rows.map((row) => Array.from(row).join(",")).join("\n");
-      let csvTallies = habitTallies.columns.join(",") + "\n";
-      for (const row of habitTallies.rows) {
-        csvTallies += row.join(",") + "\n";
-      }
+      try {
+        //csv
+        let csvHabit = habit.columns.join(",") +"\n";
+        csvHabit += habit.rows.map(row=>(
+          Array.from(row).join(",")
+        ) + "\n")
+        
+        let csvTallies = habitTallies.columns.join(",") + "\n";
+        // for (const row of habitTallies.rows) {
+        //   for(let c = 0; c < row.length; c++){
+        //     csvTallies += `${row[c]}`
+        //     if(c < row.length -1) csvTallies+= ","
+        //   }
+        //   csvTallies += "\n"
+        csvTallies += habitTallies.rows.map(row=>(
+          Array.from(row).join(",")
+        ) + "\n")
+        
+        await Promise.all([
+          writeFile(`Habit-${oFile}.csv`, csvHabit, "utf-8"),
+          writeFile(`HabitTallies-${oFile}.csv`, csvTallies, "utf-8"),
+        ]);
 
-      await Promise.all([
-        writeFile(`Habit-${oFile}.csv`, csvHabit, "utf-8"),
-        writeFile(`HabitTallies-${oFile}.csv`, csvTallies, "utf-8"),
-      ]);
+      } catch (error) {
+        console.error("failed to export csv file(s)... \nReason: ", error);
+      }
+      
     }
   }
 
