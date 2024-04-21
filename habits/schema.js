@@ -10,6 +10,7 @@ const habitSchema  = `
 const habitTallySchema = `date varchar, habit_id integer REFERENCES Habits(id), count integer DEFAULT 1`
 
 export async function BuildHabits(){
+    console.log("building habits...")
     try {
         await db.batch([
             `CREATE TABLE IF NOT EXISTS Habits (${habitSchema});`,
