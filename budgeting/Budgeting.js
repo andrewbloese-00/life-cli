@@ -2,6 +2,7 @@ import { writeFile } from 'fs/promises'
 import { db } from  '../db/client.js'
 import { convertResults } from '../utils/resultsConvert.js'
 import { BuildBudgeting } from './schema.js'
+import { ColoredString } from '../utils/coloring.js'
 
 let initialized = false
 export const Budgeting = async function _Budgeting(){
@@ -32,14 +33,14 @@ export const Budgeting = async function _Budgeting(){
         }
     }
 
-    async function createBudgetEntry(budgetItemId,amount,due=Date.now(), memo=undefined){
+    async function createBudgetEntry(budgetItemId,amount,timestamp=Date.now(), memo=undefined){
         try {
             const sql = memo 
-                ? `INSERT INTO BudgetEntries ( budget_item, amount, due , memo ) VALUES (? , ? , ?, ?) RETURNING *;`
-                : `INSERT INTO BudgetEntries ( budget_item, amount, due ) VALUES (? , ? , ?) RETURNING *;`
+                ? `INSERT INTO BudgetEntries ( budget_item, amount, timestamp , memo ) VALUES (? , ? , ?, ?) RETURNING *;`
+                : `INSERT INTO BudgetEntries ( budget_item, amount, timestamp ) VALUES (? , ? , ?) RETURNING *;`
             const args = memo 
-                ? [budgetItemId,amount,due,memo]
-                : [budgetItemId,amount,due]
+                ? [budgetItemId,amount,timestamp,memo]
+                : [budgetItemId,amount,timestamp]
 
             const reply = await db.execute({sql,args})
             const [budget_entry] = convertResults(reply);
@@ -54,7 +55,7 @@ export const Budgeting = async function _Budgeting(){
 
     async function getBudget(){
         try {
-            const reply = await db.execute(`SELECT * FROM BudgetItems ORDER_BY amount DESC;`)
+            const reply = await db.execute(`SELECT * FROM BudgetItems ORDER BY amount DESC;`)
             const budget_items = convertResults(reply);
             if(budget_items[0] === null) throw new Error("Unknown Error Occured while converting reply...")
             return { budget_items }
@@ -66,15 +67,25 @@ export const Budgeting = async function _Budgeting(){
     }
 
 
-    async function getBudgetsWithProgress(constraints=undefined){ 
-        if( constraints ){
-
-
-        } else { 
-            // all time 
-
+    async function getBudgetsWithProgress(month,year){ 
+        const start = new Date(year,month-1,1).getTime()
+        
+        const endDate = new Date(year,month,0)
+        endDate.setHours(23,59,59)
+        const end = endDate.getTime()
+        
+        try {
+            const result = await db.execute({
+                sql: "SELECT BudgetItems.id, BudgetItems.name, BudgetItems.due, BudgetItems.amount, SUM(BudgetEntries.amount) AS 'progress' FROM BudgetItems JOIN BudgetEntries ON BudgetItems.id = BudgetEntries.budget_item WHERE BudgetEntries.timestamp BETWEEN ? AND ? GROUP BY BudgetItems.id,BudgetItems.name, BudgetItems.amount, BudgetItems.due ORDER BY BudgetItems.due;",
+                args: [start,end]
+            })
+            const budgets_and_progress = await convertResults(result)
+            return { budgets_and_progress }
+            
+        } catch (error) {
+            console.error(`Failed to execute query\n Reason: ${ColoredString(error.message||error, "red")}`)
+            return { error }    
         }
-    
     }
 
 
@@ -82,7 +93,7 @@ export const Budgeting = async function _Budgeting(){
 
 
 
-    return { createBudgetItem, createBudgetEntry }
+    return { createBudgetItem, createBudgetEntry,getBudget,getBudgetsWithProgress }
    
     
 

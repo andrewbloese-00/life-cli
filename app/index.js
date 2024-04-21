@@ -63,6 +63,8 @@ function renderHabit(habit){
     )
     return h
 }
+
+//for habit colors
 const colorPicker = [
     `(1) ${ColoredString(" ","white","black")} `,
     `(2) ${ColoredString(" ","white","red")} `,
@@ -370,11 +372,132 @@ async function doBudgetItemCreate(budgetService){
     }
 }
 
+async function doBudgetEntryCreate(budgetService){
+    const gotItems = await budgetService.getBudget()
+    if(gotItems.error)
+        panic(`Failed to fetch budget items...\nReason: ${ColoredString(gotItems.error,"red")}`)
+    
+    
+    console.clear()
+    console.log(ColoredString("== Create Budget Entry ==", "cyan"))
+    const selectedIndex = await inquirer.select({
+        message: "Which Item would you like to create an entry for?",
+        choices: gotItems.budget_items.map((item,i)=>({
+            name: item.name,
+            value: i,
+            description: item.description || item.due ? `Due monthly on day: ${item.due}` : "budget item",
+        }))
+
+    })
+    const item =  gotItems.budget_items[selectedIndex]
+    const now = new Date()
+    const month = now.getMonth() + 1; 
+    const year = now.getFullYear()
+    const progress = await budgetService.getBudgetsWithProgress(month,year)
+    if(progress.error){
+        panic("Failed to fetch progres...")
+    }
+    const relatedProgress = progress.budgets_and_progress.find(prog=> prog !== null && prog.id === item.id)
+    
+    const remaining = relatedProgress 
+        ?  item.amount - relatedProgress.progress
+        :  item.amount
+    
+
+    const entryAmount = await inquirer.input({
+        message: `Enter the amount to enter for ${item.name} [remaining: ${remaining}]\n > $`,
+        validate: s=> !isNaN(s)
+    })
+
+
+    const entryMemo = await inquirer.input({
+        message: `(Optional) Enter a memo for the budget entry:\n`,
+    })
+    const { budget_entry, error } = await budgetService.createBudgetEntry(item.id, Number(entryAmount), now.getTime(), entryMemo  )
+    if(error){
+        console.error(`Failed to create budget entry. \n\n Reason: ${ColoredString(error, "red")}`)
+    }
+    console.log(
+        ColoredString(`Successfully added budget entry. New remaining amount for this month: $${remaining-Number(entryAmount)}`,"green")
+    )
+}
+
+
+
+function progressBar(width,progress,fill){
+    
+    const w = width-2
+    const bw = Math.floor(progress*w)
+
+    let bar = fill.repeat(Math.floor(progress*w))
+
+    return "|" + bar + " ".repeat(w-bw)  + "|"
 
 
 
 
 
+
+
+
+}
+const months = [ "January", "February", "March", "April", "May", "June","July","August","September","October","November","December" ];
+async function doGetBudgetingProgress(budgetService){
+    const now = new Date()
+    let month = now.getMonth() + 1;
+    let year = now.getFullYear();
+
+    year = await inquirer.input({
+        message: "What year?\n > ",
+        default: year
+    })
+
+    month = await inquirer.input({
+        message: "Which month?\n > ",
+        default: month
+    })
+
+    
+    
+    const { budgets_and_progress, error} = await budgetService.getBudgetsWithProgress(month,year)
+    if(error){
+        panic(`Failed to get budget history for ${month}/${year}... \nReason: ${ColoredString(error,"red")}`)
+    }
+    
+    if(budgets_and_progress[0] === null) { 
+        return console.error(`Failed to get budget progress for ${month}/${year}...\nReason: ${ColoredString("No Entries Found","red")}`)
+    }
+    console.clear();
+    console.log(ColoredString(`== Budget Progress - ${ months[month-1]}, ${year} ==`,"cyan","black",{bright:true}))
+
+
+
+    for( const {name,due,amount,progress} of budgets_and_progress){
+        const percent = progress/amount
+        const daysInMonth = new Date(year,month,0).getDate();
+        const formattedDate = `${month}/${Math.min(daysInMonth,due)}/${year}`
+        const remaining = "$" + (amount - progress).toFixed(2);
+        let output = `${name} - ${due ? `Due: ${formattedDate} - `:""} Remaining: ${remaining}\n`
+        
+        
+        output += progressBar(process.stdout.columns/2,Math.min(percent,1),ColoredString('\u2588',"green"))
+        console.log(output + "\n")
+
+        
+
+
+    }
+
+
+
+
+
+}
+
+
+
+
+//Menus
 
 /**
  * @about generates a block title to be used on application launch... 
@@ -412,87 +535,180 @@ async function doRootMenu(habitService,budgetingService){
         first = false
     }
 
-    const option = await inquirer.select({
-        message: "Select an action",
-        choices: [ 
-            new inquirer.Separator( ColoredString("---Habits---", "cyan","black",{ bright: true})),
+    const command = await inquirer.select({
+        message: "Select A Module",
+        choices: [
             {
-                name: "Add New Habit",
-                value: "a",
-                description: "Create a new daily habit to track"
+                name: ColoredString("Habits","cyan","black",{bright:true}),
+                value: "h",
+                description: "Manage Your Daily Habits"
             },
             {
-                name: "Add Tally",
-                value: "t",
-                description: "Mark progress towards an existing habit"
+                name: ColoredString("Budgeting","green","black",{bright: true}),
+                value: "b",
+                description: "Manage Your Monthly Budget!"
             },
+            new inquirer.Separator(),
             {
-                name: "Delete Habit",
-                value: "d", 
-                description: "Delete an existing habit"
-            },
-            {
-                name: "Update Habit",
-                value: "u",
-                description: "Update an existing habit"
-            },
-            {
-                name: "Export Habit Data",
-                value: "e",
-                description: "Export your habits to csv or json format"
-            },
-            new inquirer.Separator(ColoredString("--Budgeting--","cyan","black",{bright: true})),
-            {
-                name: "Create Budget Item",
-                value: "cb",
-                description: "Create a new budget items (category)"
-            },
-            {
-                name: "Create Budget Entry",
-                value: "ce",
-                description: "Create an entry to track your budget items. "
-            },
-            new inquirer.Separator(""),
-            {
-                name: "Quit",
+                name: ColoredString("Quit","red","black"),
                 value: "q",
-                description: "Quit the program..."
-            }
+                description: "Exit the program."
+            }  
         ]
     })
 
-    switch(option){
-        case "a": 
-            await doCreateHabit(habitService);
+
+    switch(command){
+        case "h": 
+            await doHabitsMenu(habitService);
             break;
-        case "t":
-            await doAddTallies(habitService);
+        case "b":
+            await doBudgetingMenu(budgetingService,true);
             break;
-        case "e":
-            await doExportHabits(habitService);
+        case "q": 
+            console.log("Goodbye! :)\n")
+            process.exit(0);    
+        default: 
+            panic("Unsupported Command: " + command)
+    }
+
+    await doRootMenu(habitService,budgetingService)
+
+}
+
+
+async function doBudgetingMenu(budgetingService,fromMain=false){
+    if(fromMain)console.clear();
+    console.log(ColoredString("== Budgeting ==", "green", "black", {bright: "true"}))
+    const command = await inquirer.select({
+        message: "Select An Action",
+        loop: false,
+        choices: [
+            { 
+                name: "Create A Budget Category",
+                value: "cbi",
+                description: "Create a budget category", 
+            },
+            {
+                name: "Make Budget Entry",
+                value: "cbe", 
+                description: "Create an entry for a budget category"
+            },
+            {
+                name: "View Budget History",
+                value: "vb",
+                description: "View your budget history."
+            },
+            new inquirer.Separator(),
+            {
+                name: ColoredString("Back", "yellow"),
+                value: "b",
+                description: "Go Back to Main Menu"
+            },
+            {
+                name: ColoredString("Quit", "red"),
+                value: "q",
+                description: "Exit The Program"
+            }
+        ] 
+    })
+
+    switch(command){
+        case "cbi": 
+            await doBudgetItemCreate(budgetingService)
             break; 
-        case "d": 
-            await doDeleteHabit(habitService);
+        case "cbe": 
+            await doBudgetEntryCreate(budgetingService)
             break;
-        case "u": 
+        case "vb":
+            await doGetBudgetingProgress(budgetingService) 
+            break;
+        case "b": 
+            return; 
+        case "q": 
+            console.log("Goodbye! :)\n")
+            process.exit(0)
+    }
+    await doBudgetingMenu(budgetingService)
+
+
+}
+
+
+async function doHabitsMenu(habitService){
+    console.clear()
+    console.log(
+        ColoredString(`== Habits ==` , "cyan", "black", {bright: true})
+    )
+    const command = await inquirer.select({
+        message: "Select An Action",
+        loop: false,
+        choices: [
+            {
+                name: "Create New Habit",
+                value: "ch",
+                description: "Create a new daily habit to track."
+            },
+            {
+                name: "Update Habit",
+                value: "uh",
+                description: "Update an existing habit."
+            },
+            {
+                name: "Mark Progress",
+                value: "ph",
+                description: "Track progress towards your Habits"
+            },
+            {
+                name: "Delete Habit",
+                value: "dh",
+                description: "Delete an existing habit",
+            },
+            {
+                name: "Export Data",
+                value: "eh",
+                description: "Export habits data to CSV or JSON file"
+            },
+            new inquirer.Separator(),
+            {
+                name: ColoredString("Back", "yellow"),
+                value: "b",
+                description: "Return to main menu"
+            },
+            {
+                name: ColoredString("Quit","red"),
+                value: "q",
+                description: "Quit The Program"
+            },
+
+        ]
+    })
+
+
+    switch (command){
+        case "ch":
+            await doCreateHabit(habitService)
+            break;
+        case "uh":
             await doHabitEdit(habitService);
             break;
-        case "cb":
-            await doBudgetItemCreate(budgetingService);
+        case "ph": 
+            await doAddTallies(habitService);
             break;
-
-        case "ce": 
+        case "dh":
+            await doDeleteHabit(habitService);
             break;
-
-        case "q": 
-            console.log("Goodbye :)");
-            process.exit(0);
-        default: 
-            panic("Unrecognized option: " + option+ "... How tf did you even input this?");
+        case "eh":
+            await doExportHabits(habitService); 
+            break;
+        case "b":
+            return; 
+        case "q":
+            console.log("Goodbye! :)")
+            process.exit(0)
+            
     }
-    // console.log(ColoredString("== Habits ==", "cyan","black",{bright: true}))
-    //continue application loop
-    await doRootMenu(habitService,budgetingService)
+    await doHabitsMenu(habitService)
 
 }
 

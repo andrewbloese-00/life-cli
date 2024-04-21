@@ -14,7 +14,7 @@ const budgetEntrySchema = `
 export async function BuildBudgeting(){
     console.log("building budgeting...")
     try {
-        const result = await db.batch([
+        await db.batch([
             `CREATE TABLE IF NOT EXISTS BudgetItems (${budgetItemSchema});`,
             `CREATE TABLE IF NOT EXISTS BudgetEntries (${budgetEntrySchema});`,
             `CREATE INDEX IF NOT EXISTS budget_item_name ON BudgetItems(name);`,
