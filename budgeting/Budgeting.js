@@ -5,6 +5,10 @@ import { BuildBudgeting } from './schema.js'
 import { ColoredString } from '../utils/coloring.js'
 
 let initialized = false
+
+/**
+ * @returns an injectable service that exposes create read and update operations for BudgetItems and BudgetEntries
+ */
 export const Budgeting = async function _Budgeting(){
     if(!initialized){
         await BuildBudgeting();
@@ -76,7 +80,7 @@ export const Budgeting = async function _Budgeting(){
         
         try {
             const result = await db.execute({
-                sql: "SELECT BudgetItems.id, BudgetItems.name, BudgetItems.due, BudgetItems.amount, SUM(BudgetEntries.amount) AS 'progress' FROM BudgetItems JOIN BudgetEntries ON BudgetItems.id = BudgetEntries.budget_item WHERE BudgetEntries.timestamp BETWEEN ? AND ? GROUP BY BudgetItems.id,BudgetItems.name, BudgetItems.amount, BudgetItems.due ORDER BY BudgetItems.due;",
+                sql: "SELECT BudgetItems.id, BudgetItems.name, BudgetItems.due, BudgetItems.amount, SUM(BudgetEntries.amount) AS 'progress' FROM BudgetItems LEFT JOIN BudgetEntries ON BudgetItems.id = BudgetEntries.budget_item WHERE BudgetEntries.timestamp BETWEEN ? AND ? GROUP BY BudgetItems.id,BudgetItems.name, BudgetItems.amount, BudgetItems.due ORDER BY BudgetItems.due;",
                 args: [start,end]
             })
             const budgets_and_progress = await convertResults(result)
@@ -87,15 +91,6 @@ export const Budgeting = async function _Budgeting(){
             return { error }    
         }
     }
-
-
-
-
-
-
     return { createBudgetItem, createBudgetEntry,getBudget,getBudgetsWithProgress }
-   
-    
-
     
 }

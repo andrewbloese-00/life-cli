@@ -75,7 +75,7 @@ export const Habits = async function _Habits() {
 
     try {
       const reply = await db.execute({
-        sql: `SELECT H.name, H.daily_count, H.id, H.color, SUM(T.count) as 'Progress' FROM Habits H JOIN HabitTallies T ON H.id = T.habit_id WHERE substr(T.date,1,10)=? GROUP BY H.name, H.id ORDER BY H.id`,
+        sql: `SELECT H.name, H.daily_count, H.min_max, H.id, H.color, SUM(T.count) as 'Progress' FROM Habits H JOIN HabitTallies T ON H.id = T.habit_id WHERE substr(T.date,1,10)=? GROUP BY H.name, H.id, H.min_max ORDER BY H.id`,
         args: [d],
       });
       

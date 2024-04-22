@@ -130,6 +130,71 @@ async function doCreateHabit(habitService){
 
 }
 
+
+async function doHabitProgress(habitService){
+    const allHabits = await habitService.getHabits()
+    if( allHabits.error ) {
+        return console.error("Failed to fetch habits data... \n Reason: ", ColoredString(allHabits.error, "red"))
+    } 
+    const now = new Date();
+    const [ m , d, y] = [now.getMonth()+1,now.getDate(),now.getFullYear()]    
+    const monthString = await inquirer.input({
+        message: "Which month?\n > ",
+        default: m,
+    })
+
+    const month = Number(monthString)
+    const year =  await inquirer.input({message: "Which Year? \n > ", default: y, validate: s=>!isNaN(s)})
+    const maxDays = new Date(year,month,0).getDate()
+    const dateOfMonth = await inquirer.input({
+        message: `Which Date?\n [1..${maxDays}]\n > `,
+        default: d,
+    })
+
+    const days = Number(dateOfMonth)
+    if(days < 1 || days > maxDays) { 
+        return console.error("Failed to create date.\nReason: ", ColoredString(`Expected date in range [1..${maxDays}]`,"red"))
+    }
+
+    const selectedDate = new Date(Number(year),month-1,days)
+    const { tallies , error } = await habitService.getTalliesOn(selectedDate)
+    if(error || tallies[0] === null){
+        return console.error("Failed to fetch talies for specified date. \nReason: ", ColoredString(error||"Unknown Error Occured","red"))
+    }
+
+    console.clear()
+    const seen = {}
+    console.log(ColoredString(`== Habits Progress | ${months[month-1]} ${days}, ${year} ==`, "green","black", {bright: true}))
+    let display = ""
+    for(const {id, color,daily_count, name, min_max, Progress } of tallies){
+        const percent = Progress/daily_count
+        const minOrMax = min_max === 0 ? "Minimum" : "Maximum"
+        const paddedProgress = ColoredString((`${Progress}/${daily_count}`).padEnd(20, " "), color)
+        const bar = progressBar(process.stdout.columns/2, percent, ColoredString('\u2588',color))
+        display += (`\n${name} [${minOrMax}: ${daily_count}] \n ${paddedProgress}: ${bar}`)
+        seen[id] = true
+    }
+
+    const unseenHabits = allHabits.habits.filter(({id}) => !seen[id])
+    for( const { name, daily_count,color, min_max } of unseenHabits){
+        const minOrMax = min_max === 0 ? "Minimum" : "Maximum"
+        const paddedProgress = ColoredString((`0/${daily_count}`).padEnd(20, " "), color)
+        const bar = progressBar(process.stdout.columns/2, 0, "")
+        display += (`\n${name} [${minOrMax}: ${daily_count}] \n ${paddedProgress}: ${bar}\n`)
+    }
+
+    console.log(display)
+
+
+
+
+    
+
+
+
+}
+
+
 async function doGetHabits(habitService,render=true){
     const { habits, error} = await habitService.getHabits()
     if(error) panic(`Failed to fetch habits! REASON: \n ${error}`,1)
@@ -425,24 +490,21 @@ async function doBudgetEntryCreate(budgetService){
 
 
 function progressBar(width,progress,fill){
-    
     const w = width-2
-    const bw = Math.floor(progress*w)
-
-    let bar = fill.repeat(Math.floor(progress*w))
-
+    const bw = Math.min(w,Math.floor(progress*w))
+    let bar = fill.repeat(bw)
     return "|" + bar + " ".repeat(w-bw)  + "|"
-
-
-
-
-
-
-
-
 }
 const months = [ "January", "February", "March", "April", "May", "June","July","August","September","October","November","December" ];
 async function doGetBudgetingProgress(budgetService){
+
+    const allBudgets = await budgetService.getBudget()
+    if(allBudgets.error) {
+        return console.error("Failed to fetch budget items...\n Reason: ", ColoredString(allBudgets.error,"red"))
+    }
+
+
+
     const now = new Date()
     let month = now.getMonth() + 1;
     let year = now.getFullYear();
@@ -456,8 +518,6 @@ async function doGetBudgetingProgress(budgetService){
         message: "Which month?\n > ",
         default: month
     })
-
-    
     
     const { budgets_and_progress, error} = await budgetService.getBudgetsWithProgress(month,year)
     if(error){
@@ -471,27 +531,31 @@ async function doGetBudgetingProgress(budgetService){
     console.log(ColoredString(`== Budget Progress - ${ months[month-1]}, ${year} ==`,"cyan","black",{bright:true}))
 
 
-
-    for( const {name,due,amount,progress} of budgets_and_progress){
-        const percent = progress/amount
-        const daysInMonth = new Date(year,month,0).getDate();
+    let display = ""
+    const seen = {}
+    const daysInMonth = new Date(year,month,0).getDate();
+    
+    for( const {id,name,due,amount,progress} of budgets_and_progress){
         const formattedDate = `${month}/${Math.min(daysInMonth,due)}/${year}`
+        
+        const percent = progress/amount
         const remaining = "$" + (amount - progress).toFixed(2);
-        let output = `${name} - ${due ? `Due: ${formattedDate} - `:""} Remaining: ${remaining}\n`
-        
-        
-        output += progressBar(process.stdout.columns/2,Math.min(percent,1),ColoredString('\u2588',"green"))
-        console.log(output + "\n")
-
-        
-
-
+        let output = `${ColoredString(name,"white", "black", {bright: true})} \n - ${due ? `Due: ${formattedDate}\n - `:""}Remaining: ${remaining}\n`
+        output += progressBar(process.stdout.columns/2,Math.min(percent,1),ColoredString('\u2588',"green")) + "\n\n"
+        display+= output
+        seen[id] = true; 
+    }
+    
+    //now append the 0 progress items
+    const nonProgressItems = allBudgets.budget_items.filter(item => !seen[item.id])
+    for(const { name , amount , due} of  nonProgressItems ){
+        const formattedDate = `${month}/${Math.min(daysInMonth,due)}/${year}`
+        let output = `${ColoredString(name,"white", "black", {bright: true})} \n - ${due ? `Due: ${formattedDate}\n - `:""}Remaining: ${amount}\n`
+        output += progressBar(process.stdout.columns/2,0,"?") + "\n\n"
+        display += output
     }
 
-
-
-
-
+    console.log(display)
 }
 
 
@@ -512,7 +576,7 @@ function generateTitle(){
         "######  ######  ##      ######         ####  ######  ###### "
 
     ]
-    let coloredTitle = "" 
+    let coloredTitle = "\n\n" 
     for(let i = 0; i < title.length; i++){
         for(let j = 0; j < title[i].length; j++){
             coloredTitle += (title[i][j] === "#") ? ColoredString('\u2588',"cyan","black",{bright: true}) : " " 
@@ -532,6 +596,13 @@ async function doRootMenu(habitService,budgetingService){
     if(first){
         console.clear();
         console.log(generateTitle())
+        console.log([
+            " => Create and Track Habits",
+            " => Manage your budget",
+            " ",
+            " Quit at any time with (Ctrl+c) ",
+
+        ].map(t=>ColoredString(t,"magenta")).join("\n"), "\n\n")
         first = false
     }
 
@@ -560,7 +631,7 @@ async function doRootMenu(habitService,budgetingService){
 
     switch(command){
         case "h": 
-            await doHabitsMenu(habitService);
+            await doHabitsMenu(habitService,true);
             break;
         case "b":
             await doBudgetingMenu(budgetingService,true);
@@ -635,8 +706,8 @@ async function doBudgetingMenu(budgetingService,fromMain=false){
 }
 
 
-async function doHabitsMenu(habitService){
-    console.clear()
+async function doHabitsMenu(habitService,fromMain=false){
+    if(fromMain) console.clear()
     console.log(
         ColoredString(`== Habits ==` , "cyan", "black", {bright: true})
     )
@@ -658,6 +729,11 @@ async function doHabitsMenu(habitService){
                 name: "Mark Progress",
                 value: "ph",
                 description: "Track progress towards your Habits"
+            },
+            {
+                name: "View Progress",
+                value: "vh",
+                description: "View daily progress for your habits.",
             },
             {
                 name: "Delete Habit",
@@ -700,6 +776,10 @@ async function doHabitsMenu(habitService){
             break;
         case "eh":
             await doExportHabits(habitService); 
+            break;
+
+        case "vh":
+            await doHabitProgress(habitService)
             break;
         case "b":
             return; 
